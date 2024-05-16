@@ -5,3 +5,4 @@ def get_image(path: str, scale: list):
     image = pg.transform.scale( image, (scale[0], scale[1]))
     return image
 
+ 

@@ -18,8 +18,7 @@ class App():
         self.timer = Timer(self)
 
         self.stage = {"radius": 200}
-        self.timer.start()
-
+        
     def render(self):
         self.display.fill(GRAY)
 
@@ -33,9 +32,6 @@ class App():
         self.sumo_bot.update()
 
         self.enemy.render(self.display)
-
-        self.timer.tick()
-        print(self.timer.time)
 
         #for r in range(ROWS):
             #for c in range(COLS):
@@ -54,6 +50,8 @@ class App():
             if e.type == pg.KEYDOWN:
                 if e.key == pg.K_w:
                     self.sumo_bot.move = True
+                    self.sumo_bot.turns[0] = True
+                    self.sumo_bot.turns[1] = True
                 if e.key == pg.K_s:
                     self.sumo_bot.move_back = True
                 if e.key == pg.K_a:
@@ -72,7 +70,7 @@ class App():
 
             if e.type == pg.KEYUP:
                 if e.key == pg.K_w:
-                    self.sumo_bot.move = False
+                    self.sumo_bot.move = True
                 if e.key == pg.K_s:
                     self.sumo_bot.move_back = False
                 if e.key == pg.K_a:
@@ -94,9 +92,7 @@ class App():
 
 
 if __name__ == '__main__':
-
-    state = 0
-    assert state == 0, "whoudl be 0"
+    assert 1, "whoudl be 0"
 
     app = App() 
     app.run()

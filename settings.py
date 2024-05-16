@@ -1,6 +1,7 @@
 import pygame as pg
 import sys, math
 from enum import Enum
+from dataclasses import dataclass
 
 vec2 = pg.math.Vector2
 

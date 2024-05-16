@@ -1,14 +1,23 @@
 from settings import * 
+from sumo_bot_enums import * 
 
 class Timer():
     def __init__(self, app) -> None:
         self.app = app
         self.time: int = 0
         self.on = False
+        self.timeout: int = 0
     def tick(self):  
-        if self.on: self.time += self.app.delta_time
+        if self.on: 
+            self.time += self.app.delta_time
+        if self.time >= self.timeout:
+            return True
+        return False
+    
     def reset(self): self.time = 0
-    def start(self): self.on = True
+    def start(self, timeout): 
+        self.timeout = timeout
+        self.on = True
     def stop(self): self.on = False
 
 class Sumo_Bot():
@@ -22,6 +31,7 @@ class Sumo_Bot():
         self.move = False
         self.move_back = False
         self.turns = [0,0]
+        self.drive_setting: Drive_Speeds = drive_speeds[2][2]
         self.target: Enemy
         self.line_detected_bool = False
         self.enemy_in_front_bool = False
@@ -75,20 +85,20 @@ class Sumo_Bot():
     def move_forward(self):
         x_speed = math.cos( math.radians( self.angle  ) ) 
         y_speed = math.sin( math.radians( self.angle  ) ) 
-        speed = vec2(x_speed, y_speed) * self.speed
+        speed = vec2(x_speed, y_speed) * self.drive_setting.speed * 2
         self.pos += speed
 
     def move_backward(self):
         x_speed = math.cos( math.radians( 180 + self.angle ) ) 
         y_speed = math.sin( math.radians( 180 + self.angle ) ) 
-        speed = vec2(x_speed, y_speed) * self.speed
+        speed = vec2(x_speed, y_speed) * self.drive_setting.speed * 2
         self.pos += speed
 
     def turn_left(self):
-         self.angle -= 6
+         self.angle -= self.drive_setting.left
 
     def turn_right(self):
-         self.angle += 6
+         self.angle += self.drive_setting.right
 
     def distance(self, px1, px2, py1, py2):
         return math.sqrt(pow(px1 - px2, 2) + pow(py1 - py2, 2))
@@ -216,6 +226,13 @@ class Sumo_Bot():
 
         return ray_pos_x, ray_pos_y, player_hit
     
+    def drive_set(self, direction: Drive_Dir, speed: Drive_Speed):
+        drive_setting = drive_speeds[direction][speed]
+        self.drive_setting = drive_setting
+
+    def drive_stop(self):
+        pass
+    
 
 #---------------------------------------------STATE MACHINE---------------------------------------------#
 
@@ -307,7 +324,8 @@ state_transitions = [
 '''
 
 class StateMachine():  # State machine logic
-    def __init__(self) -> None:
+    def __init__(self, user) -> None:
+        self.user: Sumo_Bot = user
         self.state_e: State_e = State_e.STATE_WAIT  # CURRENT STATE
         self.state_machine_common_data: StateMachineCommonData  # COMMON USED DATA
         # hold data for individual states
@@ -399,15 +417,15 @@ class StateMachine():  # State machine logic
     def state_manual_enter(self, manual_state, from_state: State_e, event: StateEvent):
         pass
 
-    def has_internal_event(self):
+    def has_internal_event(self): # check if current state has internal state or is in internal state
         return self.internal_event != StateEvent.STATE_EVENT_NONE
     
-    def take_internal_event(self):
+    def take_internal_event(self): # set internal event to NONE and return prev internal state
         event: StateEvent = self.internal_event
         self.internal_event = StateEvent.STATE_EVENT_NONE
         return event
 
-    def post_internal_event(self, event: StateEvent):
+    def post_internal_event(self, event: StateEvent): # set internal state to state machine
         self.internal_event = event
 
 
@@ -434,7 +452,7 @@ class Search_State():
         self.state_e: State_e
         self.internal_state: Search_State_e
         self.rotate_timeout = 1
-        self.rotate_timeout = 3
+        self.forward_timeout = 3
 
      def search_init(self):
          self.state_e = Search_State_e.SEARCH_STATE_ROTATE
@@ -445,9 +463,7 @@ class Search_State():
         if from_state == State_e.STATE_WAIT:
             assert event == StateEvent.STATE_EVENT_COMMAND, "only event should be remote command"
             self.run_search()
-        elif from_state == State_e.STATE_ATTACK:
-            pass # FALL THROUGH
-        elif from_state == State_e.STATE_RETREAT:
+        elif from_state == State_e.STATE_RETREAT or from_state == State_e.STATE_ATTACK:
             # CHECK EVENT TRIGGEREING TRANSITION & COMING FROM STATE
             if event == StateEvent.STATE_EVENT_NONE:
                 assert from_state == State_e.STATE_ATTACK, "should only come from attack state"
@@ -462,9 +478,9 @@ class Search_State():
                     self.internal_state = Search_State_e.SEARCH_STATE_ROTATE 
                 self.run_search()
             elif event == StateEvent.STATE_EVENT_ENEMY:
-                assert 0 == 1, "should never enter this state if event is enemy"
+                assert 0, "should never enter this state if event is enemy"
             elif event == StateEvent.STATE_EVENT_LINE:
-                assert 0 == 1, "should never enter this state if event is NONE"
+                assert 0, "should never enter this state if event is NONE"
 
         elif from_state == State_e.STATE_SEARCH:
             if event == StateEvent.STATE_EVENT_NONE:
@@ -476,47 +492,165 @@ class Search_State():
                 elif self.internal_state == Search_State_e.SEARCH_STATE_ROTATE:
                     self.internal_state = Search_State_e.SEARCH_STATE_FORWARD
                 self.run_search()
-            # REST OF THESE STATES SHOULD NEVER HAPPEN
-            elif event == StateEvent.STATE_EVENT_ENEMY:
-                assert 1 == 0, self.EVENT_ERROR(event, from_state)
-            elif event == StateEvent.STATE_EVENT_LINE:
-                assert 1 == 0, self.EVENT_ERROR(event, from_state)
-            elif event == StateEvent.STATE_EVENT_FINISHED:
-                assert 1 == 0, self.EVENT_ERROR(event, from_state)
-            elif event == StateEvent.STATE_EVENT_COMMAND:
-                assert 1 == 0, self.EVENT_ERROR(event, from_state)
+            else:  # REST OF THESE STATES SHOULD NEVER HAPPEN
+                assert 0, self.EVENT_ERROR(event, from_state)
+
         elif from_state == State_e.STATE_MANUAL:
             pass
 
      def run_search(self):
         if self.internal_state == Search_State_e.SEARCH_STATE_FORWARD:
-            pass
+            self.state_machine_common_data.timer.start(self.forward_timeout)
+            self.state_machine_common_data.state_machine_data.user.drive_set()
+
         elif self.internal_state == Search_State_e.SEARCH_STATE_ROTATE:
-            pass
+            self.state_machine_common_data.timer.start(self.rotate_timeout)
+
 
      def EVENT_ERROR(self, event: StateEvent, from_state: State_e):
         return f'event: {event} should not happen from {from_state}'
 
 # ---------------------------------ATTACK STATE----------------------------------#
 
-
+#function : drive toward detected enemy
+class Attack_State_e(Enum): # three internal states
+    ATTACK_STATE_FORWARD = 0
+    ATTACK_STATE_LEFT = 1
+    ATTACK_STATE_RIGHT = 2
+    
 class Attack_State():
     def __init__(self) -> None:
         self.state_machine_common_data: StateMachineCommonData
         self.state_e: State_e
+        self.attack_state_e: Attack_State_e
+
+        self.attack_timeout = 5
 
     def attack_init(self):
         pass
 
+    def attack_enter(self, from_state: State_e, event: StateEvent):
+        prev_attack: Attack_State_e = self.attack_state_e
+        self.attack_state_e = self.next_attack_state()
+
+        if from_state == State_e.STATE_SEARCH:
+            if event == StateEvent.STATE_EVENT_ENEMY: # only way to get attack from search is if enemy detected
+                self.run_attack()
+            else: # no other events shoould from search
+                assert 0, EVENT_ERROR(event, from_state, State_e.STATE_ATTACK)
+
+        elif from_state == State_e.STATE_ATTACK:
+            if event == StateEvent.STATE_EVENT_ENEMY:
+                if prev_attack != self.attack_state_e:
+                    self.run_attack()
+            elif event == StateEvent.STATE_EVENT_TIMEOUT:
+                assert 0, "might change strategy"
+            else:  # no other events shoould from attack
+                assert 0, EVENT_ERROR(event, from_state, State_e.STATE_ATTACK)
+
+        elif from_state == State_e.STATE_WAIT:
+            assert 0, f'{State_e.STATE_ATTACK}, Should not come form wait state, go search first'
+        elif from_state == State_e.STATE_RETREAT:
+            assert 0, f'{State_e.STATE_ATTACK}, Should not come form retreat state, go search first'
+        elif from_state == State_e.STATE_MANUAL:
+            assert 0, f'{State_e.STATE_ATTACK}, Should not come form manual state, go search first'
+
+    def next_attack_state(self) -> Attack_State_e:
+        if self.enemy_at_front(self.state_machine_common_data.enemy):
+            return Attack_State_e.ATTACK_STATE_FORWARD
+        elif self.enemy_at_left(self.state_machine_common_data.enemy):
+            return Attack_State_e.ATTACK_STATE_LEFT
+        elif self.enemy_at_right(self.state_machine_common_data.enemy):
+            return Attack_State_e.ATTACK_STATE_RIGHT
+        else:
+            assert 0, "enemy should be in view"
+
+    def run_attack(self):
+        if self.attack_state_e == Attack_State_e.ATTACK_STATE_FORWARD:
+            self.state_machine_common_data.state_machine_data.user.drive_set(Drive_Dir.DRIVE_DIR_FORWARD, Drive_Speed.DRIVE_SPEED_FAST)
+        elif self.attack_state_e == Attack_State_e.ATTACK_STATE_LEFT:
+            self.state_machine_common_data.state_machine_data.user.drive_set(Drive_Dir.DRIVE_DIR_ARCTURN_WIDE_LEFT, Drive_Speed.DRIVE_SPEED_FAST)
+        elif self.attack_state_e == Attack_State_e.ATTACK_STATE_RIGHT:
+            self.state_machine_common_data.state_machine_data.user.drive_set(Drive_Dir.DRIVE_DIR_ARCTURN_WIDE_RIGHT, Drive_Speed.DRIVE_SPEED_FAST)
+        self.state_machine_common_data.timer.start(self.attack_timeout)
+
+    def enemy_at_front(self, enemy):
+        # TODO check if enemy in front
+        pass
+    def enemy_at_left(self, enemy):
+        # TODO check if enemy on left
+        pass
+    def enemy_at_right(self, enemy):
+        # TODO check if enemy on right
+        pass
+
 # ----------------------------------RETREAT STATE------------------------------------#
+
+class Retreat_State_e(Enum):
+    RETREAT_STATE_REVERSE = 0
+    RETREAT_STATE_FORWARD = 1
+    RETREAT_STATE_ROTATE_LEFT = 2
+    RETREAT_STATE_ROTATE_RIGHT = 3
+    RETREAT_STATE_ARCTURN_LEFT = 4
+    RETREAT_STATE_ARCTURN_RIGHT = 5
+    RETREAT_STATE_ALIGN_LEFT = 6
+    RETREAT_STATE_ALIGN_RIGHT = 7
+
 
 class Retreat_State():
     def __init__(self) -> None:
         self.state_machine_common_data: StateMachineCommonData
         self.state_e: State_e
+        self.internal_state: Retreat_State_e
+        self.move_idx: int = 0
+        self.retreat_moves = [Retreat_State_e.RETREAT_STATE_REVERSE]
 
     def retreat_init(self):
+        self.internal_state = Retreat_State_e.RETREAT_STATE_REVERSE
+        self.move_idx = 0
+
+    def retreat_enter(self, from_state: State_e, event: StateEvent):
+        if from_state == State_e.STATE_SEARCH or from_state == State_e.STATE_ATTACK: 
+            if event == StateEvent.STATE_EVENT_LINE: # only possible way to come from attack state is if line is detected
+                self.run_retreat()
+            else:
+                assert 0, EVENT_ERROR(event, from_state, State_e.STATE_RETREAT)
+
+        elif from_state == State_e.STATE_RETREAT:
+            if event == StateEvent.STATE_EVENT_LINE: # line has already been detected, start over
+                self.run_retreat()
+            elif event == StateEvent.STATE_EVENT_TIMEOUT: # done with curernt move, incrememnt to next move
+                self.move_idx += 1
+                if self.retreat_state_done(): # leave current internal state
+                    # posted state finished since retreat state is the only state that know done with current state
+                    self.state_machine_common_data.state_machine_data.post_internal_event(StateEvent.STATE_EVENT_FINISHED)
+                else:
+                    self.start_retreat_move()
+            elif event == StateEvent.STATE_EVENT_NONE:
+                pass
+            elif event == StateEvent.STATE_EVENT_ENEMY: # ignore enemy when retreating
+                pass
+            else:
+                assert 0, EVENT_ERROR(event, from_state, State_e.STATE_RETREAT)
+
+        elif from_state == State_e.STATE_WAIT:
+            assert 0,STATE_ERROR(from_state, State_e.STATE_RETREAT)
+        elif from_state == State_e.STATE_MANUAL:
+            assert 0, STATE_ERROR(from_state, State_e.STATE_RETREAT)
+
+    def run_retreat(self):
+        self.move_idx = 0
+        self.internal_state = self.next_retreat_state()
+        self.start_retreat_move()
+
+    def next_retreat_state(self): # decide which retreat state to choose based on where line was detected
         pass
+
+    def start_retreat_move(self):
+        pass
+
+    def retreat_state_done(self):
+        return self.move_idx == len(self.retreat_moves)
 
 # ----------------------------------WAIT STATE-----------------------------------#
 
@@ -580,6 +714,13 @@ class Enemy():
 
 # ------------------------------------------------------------------------------------#
 
+#-------------------------------------COMMON FUNCS-------------------------------------#
+
+def EVENT_ERROR(event: StateEvent, from_state: State_e, current_state: State_e):
+    return f'event: {event} should not happen from {from_state}, goint into {current_state}'
+
+def STATE_ERROR(from_state: State_e, to_state: State_e):
+    return f'going into {to_state}, should not come from {from_state}'
 
 # -----------------------------------------LINE----------------------------------------#
 
@@ -622,4 +763,5 @@ class Line(Enum):
             pass
         elif from_state == State_e.STATE_MANUAL:
             pass
+            
 '''
