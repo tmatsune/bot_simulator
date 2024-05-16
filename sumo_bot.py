@@ -43,8 +43,6 @@ class Sumo_Bot():
         self.line_sensor()
         self.raycast()
         
-        self.timer()
-    
     def check_circle_collision(self, circle1, circle2):
         dist = math.sqrt( math.pow(circle1[0] - circle2[0], 2) + math.pow(circle1[1] - circle2[1], 2) )
         if dist < circle1[2] + circle2[2]:
@@ -234,39 +232,12 @@ class StateEvent(Enum):
 	STATE_EVENT_COMMAND = 5
 	STATE_EVENT_NONE = 6
         
-
-'''
-    state machine will hold overall state machine logic 
-    hold difference transitions
-    define transitions
-    handle inputs, translate into events to cause transition
-'''
-class StateMachine(): # State machine logic
-    def __init__(self) -> None:
-        self.state_e: State_e = State_e.STATE_WAIT # CURRENT STATE
-        self.state_machine_common_data: StateMachineCommonData # COMMON USED DATA
-        # hold data for individual states
-        self.wait_state: Wait_State
-        self.search_state: Search_State
-        self.attack_state: Attack_State
-        self.retreat_state: Retreat_State
-        self.manual_state: Manual_State
-
-    def state_machine_run(self):
-        pass
-        
-# data & definitions to be shared, between different states
-class StateMachineCommonData():
-    def __init__(self) -> None:
-        self.state_machine_data: StateMachine
-        self.enemy: Enemy
-
 # -----------------------------------SCENE_TRANSITION----------------------------------#
 class Scene_Transition():
      def __init__(self, from_state, state_event, to_state) -> None:
-        self.from_state: State_e = from_state
-        self.event_state: StateEvent = state_event
-        self.to_state: State_e = to_state
+        self.from_state: State_e = from_state # state where transition comes from 
+        self.event_state: StateEvent = state_event # event causing transition
+        self.to_state: State_e = to_state # state transition going to 
 
 state_transitions = [
     Scene_Transition(State_e.STATE_WAIT, StateEvent.STATE_EVENT_NONE, State_e.STATE_WAIT),
@@ -294,6 +265,48 @@ state_transitions = [
     Scene_Transition(State_e.STATE_MANUAL, StateEvent.STATE_EVENT_LINE, State_e.STATE_MANUAL),
     Scene_Transition(State_e.STATE_MANUAL, StateEvent.STATE_EVENT_ENEMY, State_e.STATE_MANUAL),
 ] 
+
+
+# ----------------------------------------STATE MACHINE--------------------------------------#
+'''
+    state machine will hold overall state machine logic 
+    hold difference transitions
+    define transitions
+    handle inputs, translate into events to cause transition
+'''
+class StateMachine():  # State machine logic
+    def __init__(self) -> None:
+        self.state_e: State_e = State_e.STATE_WAIT  # CURRENT STATE
+        self.state_machine_common_data: StateMachineCommonData  # COMMON USED DATA
+        # hold data for individual states
+        self.wait_state: Wait_State
+        self.search_state: Search_State
+        self.attack_state: Attack_State
+        self.retreat_state: Retreat_State
+        self.manual_state: Manual_State
+
+    def state_machine_run(self):
+        pass
+
+    # take event, go through state transition table and find corresponding transition
+    def process_event(self, next_event: StateEvent):
+        for i in range(len(state_transitions)):
+            if self.state_e == state_transitions[i].from_state and next_event == state_transitions[i].event_state:
+                self.state_enter(state_transitions[i].from_state, next_event, state_transitions[i].to_state)
+                return 
+
+    def state_enter(self, from_state: State_e, event: StateEvent, to_state: State_e):
+        pass
+
+# holds everything that needs to be accessable within all individual states
+class StateMachineCommonData():
+    def __init__(self) -> None:
+        self.state_machine_data: StateMachine
+        self.enemy: Enemy
+        self.timer: Timer
+        self.ring_buffer = []
+
+
 
 # ---------------------------------SEARCH STATE----------------------------------#
 class Search_State_e(Enum):

@@ -22,6 +22,9 @@ class App():
     def render(self):
         self.display.fill(GRAY)
 
+        x = 0
+        assert x == 0, "x should equal 0"
+
         pg.draw.circle(self.display, BLACK, (CENTER.x, CENTER.y), self.stage["radius"])
         pg.draw.circle(self.display, WHITE, (CENTER.x, CENTER.y), self.stage["radius"], 4)
 
