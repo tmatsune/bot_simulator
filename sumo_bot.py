@@ -433,8 +433,8 @@ class Search_State():
         self.state_machine_common_data: StateMachineCommonData
         self.state_e: State_e
         self.internal_state: Search_State_e
-        self.rotate_timeout = 1000
-        self.rotate_timeout = 3000
+        self.rotate_timeout = 1
+        self.rotate_timeout = 3
 
      def search_init(self):
          self.state_e = Search_State_e.SEARCH_STATE_ROTATE
