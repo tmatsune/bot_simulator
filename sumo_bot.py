@@ -4,8 +4,12 @@ class Timer():
     def __init__(self, app) -> None:
         self.app = app
         self.time: int = 0
-    def tick(self): self.time = pg.time.get_ticks()
-
+        self.on = False
+    def tick(self):  
+        if self.on: self.time += self.app.delta_time
+    def reset(self): self.time = 0
+    def start(self): self.on = True
+    def stop(self): self.on = False
 
 class Sumo_Bot():
     def __init__(self, app, img, pos) -> None:
@@ -217,20 +221,20 @@ class Sumo_Bot():
 
 # ALL STATES
 class State_e(Enum):
-	STATE_WAIT = 1
-	STATE_SEARCH = 2
-	STATE_ATTACK = 3
-	STATE_RETREAT = 4
-	STATE_MANUAL = 5
+	STATE_WAIT = 0
+	STATE_SEARCH = 1
+	STATE_ATTACK = 2
+	STATE_RETREAT = 3
+	STATE_MANUAL = 4
         
 # ALL EVENTS THAT CAN HAPPEN
 class StateEvent(Enum):
-	STATE_EVENT_TIMEOUT = 1
-	STATE_EVENT_LINE = 2
-	STATE_EVENT_ENEMY = 3
-	STATE_EVENT_FINISHED = 4
-	STATE_EVENT_COMMAND = 5
-	STATE_EVENT_NONE = 6
+	STATE_EVENT_TIMEOUT = 0
+	STATE_EVENT_LINE = 1
+	STATE_EVENT_ENEMY = 2
+	STATE_EVENT_FINISHED = 3
+	STATE_EVENT_COMMAND = 4
+	STATE_EVENT_NONE = 5
         
 # -----------------------------------SCENE_TRANSITION----------------------------------#
 class Scene_Transition():
@@ -273,7 +277,35 @@ state_transitions = [
     hold difference transitions
     define transitions
     handle inputs, translate into events to cause transition
+
+    NOTE: 
+    Internal Event: events that can be posted within states themselves
+    E.G: 
+        if in retreat state, there will be point where all retreat moves have been executed, 
+        when this happend it will only be known within retreat state
+        need way to post event from withing state themselves
 '''
+
+'''
+/* A state machine implemented as a set of enums and functions. The states are linked through
+ * transitions, which are triggered by events.
+ *
+ * Flow:
+ *    1. Process input
+ *        - Check input (e.g. sensors, timer, internal event...)
+ *        - Return event
+ *    2. Process event
+ *        - State/Change state
+ *        - Run state function
+ *    3. Repeat
+ *
+ * The flow is continuous (never blocks), which avoids the need for event synchronization
+ * mechanisms, since the input can be processed repeatedly at the beginning of each iteration
+ * instead. No input is still treated as an event (STATE_EVENT_NONE), but treated as a NOOP
+ * when processed. Of course, this means that the code inside the state machine can't block.
+ */
+'''
+
 class StateMachine():  # State machine logic
     def __init__(self) -> None:
         self.state_e: State_e = State_e.STATE_WAIT  # CURRENT STATE
@@ -284,9 +316,50 @@ class StateMachine():  # State machine logic
         self.attack_state: Attack_State
         self.retreat_state: Retreat_State
         self.manual_state: Manual_State
+        self.internal_event: StateEvent
+    
+    def state_machine_init(self):
+        self.state_e = State_e.STATE_WAIT
+        self.state_machine_common_data.state_machine_data = self
+        self.state_machine_common_data.enemy.position = Enemy_Pos.ENEMY_POS_NONE
+        self.state_machine_common_data.enemy.range = Enemy_Range.ENEMY_RANGE_NONE
+        self.state_machine_common_data.line = Line.LINE_NONE
+
+        # Set common data for all states 
+        self.wait_state.state_machine_common_data = self.state_machine_common_data
+        self.search_state.state_machine_common_data = self.state_machine_common_data
+        self.attack_state.state_machine_common_data = self.state_machine_common_data
+        self.retreat_state.state_machine_common_data = self.state_machine_common_data
+        self.manual_state.state_machine_common_data = self.state_machine_common_data
+
+        # init 3 states
+        self.search_state.search_init()
+        self.attack_state.attack_init()
+        self.retreat_state.retreat_init()
 
     def state_machine_run(self):
-        pass
+
+        next_event: StateEvent = self.process_input()
+        self.process_event(next_event=next_event)
+
+    # functinon that will cause transition to another state if particular event has happened
+    # will run in the state_machine_run function, take input to find next state
+    def process_input(self):
+        # TODO save data to history
+        # TODO get_input(line, enemy, CMD
+        '''
+        if remote_command:
+            return STATE_EVENT_COMMAND
+        elif internal remote:
+            return internal event
+        elif timeout:
+            return STATE_EVENT_TIMEOUT
+        elif line detected:
+            return STATE_EVENT_LINE
+        elif enmy detected:
+            return STATE_EVENT_ENEMY
+        '''
+        return StateEvent.STATE_EVENT_NONE
 
     # take event, go through state transition table and find corresponding transition
     def process_event(self, next_event: StateEvent):
@@ -295,21 +368,63 @@ class StateMachine():  # State machine logic
                 self.state_enter(state_transitions[i].from_state, next_event, state_transitions[i].to_state)
                 return 
 
+    # actually enter state
     def state_enter(self, from_state: State_e, event: StateEvent, to_state: State_e):
+        if from_state != to_state:
+            self.state_machine_common_data.timer.reset()
+            self.state_e = to_state
+
+        if to_state == State_e.STATE_WAIT:
+            self.state_wait_enter(self.wait_state, from_state, event)
+        elif to_state == State_e.STATE_ATTACK:
+            self.state_attack_enter(self.attack_state, from_state, event)
+        elif to_state == State_e.STATE_RETREAT:
+            self.state_retreat_enter(self.retreat_state, from_state, event)
+        elif to_state == State_e.STATE_SEARCH:
+            self.state_search_enter(self.search_state, from_state, event)
+        elif to_state == State_e.STATE_MANUAL:
+            self.state_manual_enter(self.manual_state, from_state, event)
+        else:
+            return 
+
+    def state_wait_enter(self, wait_state, from_state: State_e, event: StateEvent ):
+        assert from_state == State_e.STATE_WAIT, "should only come wait state"
         pass
+    def state_search_enter(self, search_state, from_state: State_e, event: StateEvent):
+        pass
+    def state_attack_enter(self, attack_state, from_state: State_e, event: StateEvent):
+        pass
+    def state_retreat_enter(self, retreat_state, from_state: State_e, event: StateEvent):
+        pass
+    def state_manual_enter(self, manual_state, from_state: State_e, event: StateEvent):
+        pass
+
+    def has_internal_event(self):
+        return self.internal_event != StateEvent.STATE_EVENT_NONE
+    
+    def take_internal_event(self):
+        event: StateEvent = self.internal_event
+        self.internal_event = StateEvent.STATE_EVENT_NONE
+        return event
+
+    def post_internal_event(self, event: StateEvent):
+        self.internal_event = event
+
 
 # holds everything that needs to be accessable within all individual states
 class StateMachineCommonData():
     def __init__(self) -> None:
-        self.state_machine_data: StateMachine
-        self.enemy: Enemy
-        self.timer: Timer
-        self.ring_buffer = []
-
+        self.state_machine_data: StateMachine # state machine
+        self.enemy: Enemy # struct
+        self.timer: Timer # struct 
+        self.line: Line # enum
+        self.input_history = [] # ring_buffer
+        # TODOO internal event
 
 
 # ---------------------------------SEARCH STATE----------------------------------#
-class Search_State_e(Enum):
+# Function: Drive around until enemy is found or line is detected
+class Search_State_e(Enum): #internal states for search state
     SEARCH_STATE_ROTATE = 1
     SEARCH_STATE_FORWARD = 2
 
@@ -317,6 +432,70 @@ class Search_State():
      def __init__(self) -> None:
         self.state_machine_common_data: StateMachineCommonData
         self.state_e: State_e
+        self.internal_state: Search_State_e
+        self.rotate_timeout = 1000
+        self.rotate_timeout = 3000
+
+     def search_init(self):
+         self.state_e = Search_State_e.SEARCH_STATE_ROTATE
+     
+     # swtich statement to 
+     def search_enter(self, from_state: State_e, event: StateEvent):
+
+        if from_state == State_e.STATE_WAIT:
+            assert event == StateEvent.STATE_EVENT_COMMAND, "only event should be remote command"
+            self.run_search()
+        elif from_state == State_e.STATE_ATTACK:
+            pass # FALL THROUGH
+        elif from_state == State_e.STATE_RETREAT:
+            # CHECK EVENT TRIGGEREING TRANSITION & COMING FROM STATE
+            if event == StateEvent.STATE_EVENT_NONE:
+                assert from_state == State_e.STATE_ATTACK, "should only come from attack state"
+                self.run_search()
+            elif event == StateEvent.STATE_EVENT_TIMEOUT:
+                pass
+            elif event == StateEvent.STATE_EVENT_COMMAND:
+                pass
+            elif event == StateEvent.STATE_EVENT_FINISHED:
+                assert from_state == State_e.STATE_RETREAT, "should only finish if came retreat state has finished"
+                if self.internal_state == Search_State_e.SEARCH_STATE_FORWARD: # prevent state moving back and forth
+                    self.internal_state = Search_State_e.SEARCH_STATE_ROTATE 
+                self.run_search()
+            elif event == StateEvent.STATE_EVENT_ENEMY:
+                assert 0 == 1, "should never enter this state if event is enemy"
+            elif event == StateEvent.STATE_EVENT_LINE:
+                assert 0 == 1, "should never enter this state if event is NONE"
+
+        elif from_state == State_e.STATE_SEARCH:
+            if event == StateEvent.STATE_EVENT_NONE:
+                # dont do antything, to keep state machine itertaing
+                pass
+            elif event == StateEvent.STATE_EVENT_TIMEOUT: # only other possible event, switch between internal states
+                if self.internal_state == Search_State_e.SEARCH_STATE_FORWARD:
+                    self.internal_state = Search_State_e.SEARCH_STATE_ROTATE    
+                elif self.internal_state == Search_State_e.SEARCH_STATE_ROTATE:
+                    self.internal_state = Search_State_e.SEARCH_STATE_FORWARD
+                self.run_search()
+            # REST OF THESE STATES SHOULD NEVER HAPPEN
+            elif event == StateEvent.STATE_EVENT_ENEMY:
+                assert 1 == 0, self.EVENT_ERROR(event, from_state)
+            elif event == StateEvent.STATE_EVENT_LINE:
+                assert 1 == 0, self.EVENT_ERROR(event, from_state)
+            elif event == StateEvent.STATE_EVENT_FINISHED:
+                assert 1 == 0, self.EVENT_ERROR(event, from_state)
+            elif event == StateEvent.STATE_EVENT_COMMAND:
+                assert 1 == 0, self.EVENT_ERROR(event, from_state)
+        elif from_state == State_e.STATE_MANUAL:
+            pass
+
+     def run_search(self):
+        if self.internal_state == Search_State_e.SEARCH_STATE_FORWARD:
+            pass
+        elif self.internal_state == Search_State_e.SEARCH_STATE_ROTATE:
+            pass
+
+     def EVENT_ERROR(self, event: StateEvent, from_state: State_e):
+        return f'event: {event} should not happen from {from_state}'
 
 # ---------------------------------ATTACK STATE----------------------------------#
 
@@ -326,6 +505,19 @@ class Attack_State():
         self.state_machine_common_data: StateMachineCommonData
         self.state_e: State_e
 
+    def attack_init(self):
+        pass
+
+# ----------------------------------RETREAT STATE------------------------------------#
+
+class Retreat_State():
+    def __init__(self) -> None:
+        self.state_machine_common_data: StateMachineCommonData
+        self.state_e: State_e
+
+    def retreat_init(self):
+        pass
+
 # ----------------------------------WAIT STATE-----------------------------------#
 
 
@@ -334,13 +526,6 @@ class Wait_State():
         self.state_machine_common_data: StateMachineCommonData
         self.state_e: State_e
 
-
-# ----------------------------------RETREAT STATE------------------------------------#
-
-class Retreat_State():
-    def __init__(self) -> None:
-        self.state_machine_common_data: StateMachineCommonData
-        self.state_e: State_e
 
 # ------------------------------------MANUAL STATE------------------------------------#
 
@@ -353,12 +538,37 @@ class Manual_State():
 # ------------------------------------------------------------------------------------#
 
 
+# ---------------------------------------ENEMY---------------------------------------#
+
+class Enemy_Pos(Enum):
+    ENEMY_POS_NONE = 0
+    ENEMY_POS_FRONT_LEFT = 1
+    ENEMY_POS_FRONT = 2
+    ENEMY_POS_FRONT_RIGHT = 3
+    ENEMY_POS_LEFT = 4
+    ENEMY_POS_RIGHT = 5
+    ENEMY_POS_FRONT_AND_FRONT_LEFT = 6
+    ENEMY_POS_FRONT_AND_FRONT_RIGHT = 7
+    ENEMY_POS_FRONT_ALL = 8
+    ENEMY_POS_IMPOSSIBLE = 9
+
+class Enemy_Range(Enum):
+    ENEMY_RANGE_NONE = 0
+    ENEMY_RANGE_CLOSE = 1
+    ENEMY_RANGE_MID = 2
+    ENEMY_RANGE_FAR = 3
+
 class Enemy():
     def __init__(self, app, img, pos) -> None:
         self.app = app
         self.img = img
         self.pos: vec2 = pos
         self.angle = 0
+        self.position: Enemy_Pos
+        self.range: Enemy_Range
+
+    def enemy_init(self):
+        pass
 
     def render(self, surf):
         image = pg.transform.rotate(self.img, self.angle)
@@ -367,3 +577,49 @@ class Enemy():
 
     def update(self):
         pass
+
+# ------------------------------------------------------------------------------------#
+
+
+# -----------------------------------------LINE----------------------------------------#
+
+class Line(Enum):
+    LINE_NONE = 0
+    LINE_FRONT = 1
+    LINE_BACK = 2
+    LINE_LEFT = 3
+    LINE_RIGHT = 4
+    LINE_FRONT_LEFT = 5
+    LINE_FRONT_RIGHT = 6
+    LINE_BACK_LEFT = 7
+    LINE_BACK_RIGHT = 8
+    LINE_DIAGONAL_LEFT = 9
+    LINE_DIAGONAL_RIGHT = 10
+
+# ------------------------------------------------------------------------------------#
+'''
+        if event == StateEvent.STATE_EVENT_NONE:
+            pass
+        elif event == StateEvent.STATE_EVENT_ENEMY:
+            pass
+        elif event == StateEvent.STATE_EVENT_LINE:
+            pass
+        elif event == StateEvent.STATE_EVENT_FINISHED:
+            pass
+        elif event == StateEvent.STATE_EVENT_TIMEOUT:
+            pass
+        elif event == StateEvent.STATE_EVENT_COMMAND:
+            pass
+                
+
+        if from_state == State_e.STATE_WAIT:
+            pass
+        elif from_state == State_e.STATE_ATTACK:
+            pass
+        elif from_state == State_e.STATE_RETREAT:
+            pass
+        elif from_state == State_e.STATE_SEARCH:
+            pass
+        elif from_state == State_e.STATE_MANUAL:
+            pass
+'''
