@@ -1,5 +1,6 @@
 from settings import * 
 from sumo_bot_enums import * 
+from ring_buffer import *
 
 class Timer():
     def __init__(self, app) -> None:
@@ -32,7 +33,7 @@ class Sumo_Bot():
         self.move_back = False
         self.turns = [0,0]
         self.drive_setting: Drive_Speeds = drive_speeds[2][2]
-        self.target: Enemy
+        self.target: Enemy_Struct
         self.line_detected_bool = False
         self.enemy_in_front_bool = False
         self.line_sensors = [False, False, False, False]
@@ -66,6 +67,7 @@ class Sumo_Bot():
     def line_sensor(self):
         self.line_sensors = [False, False, False, False]
         sensor_detected = False
+        count = 0
         for offset in [45, 135, 225, 315]:
             x_speed = math.cos(math.radians(self.angle + offset)) * 26
             y_speed = math.sin(math.radians(self.angle + offset)) * 26
@@ -75,6 +77,9 @@ class Sumo_Bot():
                 self.move = False
                 self.line_detected_bool = True
                 sensor_detected = True
+                self.line_sensors[count] = True
+                count += 1
+
 
         if sensor_detected: self.line_detected_bool = False
     
@@ -335,13 +340,15 @@ class StateMachine():  # State machine logic
         self.retreat_state: Retreat_State
         self.manual_state: Manual_State
         self.internal_event: StateEvent
+        
+        self.input_history: Ring_Buffer
     
     def state_machine_init(self):
         self.state_e = State_e.STATE_WAIT
         self.state_machine_common_data.state_machine_data = self
         self.state_machine_common_data.enemy.position = Enemy_Pos.ENEMY_POS_NONE
         self.state_machine_common_data.enemy.range = Enemy_Range.ENEMY_RANGE_NONE
-        self.state_machine_common_data.line = Line.LINE_NONE
+        self.state_machine_common_data.line = Line_Pos.LINE_NONE
 
         # Set common data for all states 
         self.wait_state.state_machine_common_data = self.state_machine_common_data
@@ -349,6 +356,11 @@ class StateMachine():  # State machine logic
         self.attack_state.state_machine_common_data = self.state_machine_common_data
         self.retreat_state.state_machine_common_data = self.state_machine_common_data
         self.manual_state.state_machine_common_data = self.state_machine_common_data
+
+        input_history = Ring_Buffer()
+        input_history.ring_buffer_init(6)
+        self.input_history = input_history
+        self.state_machine_common_data.input_history = self.input_history
 
         # init 3 states
         self.search_state.search_init()
@@ -433,12 +445,10 @@ class StateMachine():  # State machine logic
 class StateMachineCommonData():
     def __init__(self) -> None:
         self.state_machine_data: StateMachine # state machine
-        self.enemy: Enemy # struct
+        self.enemy: Enemy_Struct # struct
         self.timer: Timer # struct 
-        self.line: Line # enum
-        self.input_history = [] # ring_buffer
-        # TODOO internal event
-
+        self.line: Line_Pos # enum
+        self.input_history: Ring_Buffer
 
 # ---------------------------------SEARCH STATE----------------------------------#
 # Function: Drive around until enemy is found or line is detected
@@ -586,16 +596,6 @@ class Attack_State():
 
 # ----------------------------------RETREAT STATE------------------------------------#
 
-class Retreat_State_e(Enum):
-    RETREAT_STATE_REVERSE = 0
-    RETREAT_STATE_FORWARD = 1
-    RETREAT_STATE_ROTATE_LEFT = 2
-    RETREAT_STATE_ROTATE_RIGHT = 3
-    RETREAT_STATE_ARCTURN_LEFT = 4
-    RETREAT_STATE_ARCTURN_RIGHT = 5
-    RETREAT_STATE_ALIGN_LEFT = 6
-    RETREAT_STATE_ALIGN_RIGHT = 7
-
 
 class Retreat_State():
     def __init__(self) -> None:
@@ -644,10 +644,42 @@ class Retreat_State():
         self.start_retreat_move()
 
     def next_retreat_state(self): # decide which retreat state to choose based on where line was detected
-        pass
+        line_pos = self.state_machine_common_data.line
+        if line_pos == Line_Pos.LINE_FRONT_LEFT:
+            # TODO set retreat state based on input
+            pass 
+        elif line_pos == Line_Pos.LINE_FRONT_RIGHT:
+            # TODO set retreat state based on input
+            pass
+        elif line_pos == Line_Pos.LINE_BACK_LEFT:
+            # TODO set retreat state based on input
+            pass
+        elif line_pos == Line_Pos.LINE_BACK_RIGHT:
+            # TODO set retreat state based on input
+            pass
+        elif line_pos == Line_Pos.LINE_FRONT:
+            # TODO set retreat state based on input
+            pass
+        elif line_pos == Line_Pos.LINE_BACK:
+            return Retreat_State_e.RETREAT_STATE_FORWARD
+        
+        elif line_pos == Line_Pos.LINE_LEFT:
+            return Retreat_State_e.RETREAT_STATE_ARCTURN_RIGHT
+        elif line_pos == Line_Pos.LINE_RIGHT:
+            return Retreat_State_e.RETREAT_STATE_ARCTURN_LEFT
+        elif line_pos == Line_Pos.LINE_DIAGONAL_LEFT:
+            assert 0, "can happen, no implementaion yet"
+        elif line_pos == Line_Pos.LINE_DIAGONAL_RIGHT:
+            assert 0, "can happen, no implementaion yet"
+        elif line_pos == Line_Pos.LINE_NONE:
+            assert 0, "should never be called"
+        return Retreat_State_e.RETREAT_STATE_REVERSE
 
     def start_retreat_move(self):
-        pass
+        assert self.move_idx < len(self.retreat_moves), "moves index has to be less than length of retreat moves list"
+        move: Move = retreat_states[self.internal_state].moves[self.move_idx]
+        self.state_machine_common_data.timer.start(move.duration)
+        self.state_machine_common_data.state_machine_data.user.drive_set(move.dir, move.speed)
 
     def retreat_state_done(self):
         return self.move_idx == len(self.retreat_moves)
@@ -667,52 +699,14 @@ class Wait_State():
 class Manual_State():
     def __init__(self) -> None:
         self.state_machine_common_data: StateMachineCommonData
-        self.state_e: State_e
+        self.state_e: State_e = State_e.STATE_MANUAL
+
+    def manual_enter(self, from_state: State_e, event: StateEvent):
+        if event != StateEvent.STATE_EVENT_COMMAND:
+            return 
 
 # ------------------------------------------------------------------------------------#
 
-
-# ---------------------------------------ENEMY---------------------------------------#
-
-class Enemy_Pos(Enum):
-    ENEMY_POS_NONE = 0
-    ENEMY_POS_FRONT_LEFT = 1
-    ENEMY_POS_FRONT = 2
-    ENEMY_POS_FRONT_RIGHT = 3
-    ENEMY_POS_LEFT = 4
-    ENEMY_POS_RIGHT = 5
-    ENEMY_POS_FRONT_AND_FRONT_LEFT = 6
-    ENEMY_POS_FRONT_AND_FRONT_RIGHT = 7
-    ENEMY_POS_FRONT_ALL = 8
-    ENEMY_POS_IMPOSSIBLE = 9
-
-class Enemy_Range(Enum):
-    ENEMY_RANGE_NONE = 0
-    ENEMY_RANGE_CLOSE = 1
-    ENEMY_RANGE_MID = 2
-    ENEMY_RANGE_FAR = 3
-
-class Enemy():
-    def __init__(self, app, img, pos) -> None:
-        self.app = app
-        self.img = img
-        self.pos: vec2 = pos
-        self.angle = 0
-        self.position: Enemy_Pos
-        self.range: Enemy_Range
-
-    def enemy_init(self):
-        pass
-
-    def render(self, surf):
-        image = pg.transform.rotate(self.img, self.angle)
-        img_rect = image.get_rect(center=(self.pos.x, self.pos.y))
-        surf.blit(image, img_rect)
-
-    def update(self):
-        pass
-
-# ------------------------------------------------------------------------------------#
 
 #-------------------------------------COMMON FUNCS-------------------------------------#
 
@@ -722,20 +716,6 @@ def EVENT_ERROR(event: StateEvent, from_state: State_e, current_state: State_e):
 def STATE_ERROR(from_state: State_e, to_state: State_e):
     return f'going into {to_state}, should not come from {from_state}'
 
-# -----------------------------------------LINE----------------------------------------#
-
-class Line(Enum):
-    LINE_NONE = 0
-    LINE_FRONT = 1
-    LINE_BACK = 2
-    LINE_LEFT = 3
-    LINE_RIGHT = 4
-    LINE_FRONT_LEFT = 5
-    LINE_FRONT_RIGHT = 6
-    LINE_BACK_LEFT = 7
-    LINE_BACK_RIGHT = 8
-    LINE_DIAGONAL_LEFT = 9
-    LINE_DIAGONAL_RIGHT = 10
 
 # ------------------------------------------------------------------------------------#
 '''

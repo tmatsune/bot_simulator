@@ -1,5 +1,5 @@
 import pygame as pg
-import sys, math
+import sys, math, array
 from enum import Enum
 from dataclasses import dataclass
 
